@@ -1,0 +1,135 @@
+#BD of a 962 particle + 9620 chain in total
+
+#VARIABLES
+#Physical variables
+
+variable	mass_bead	 equal	 1.0
+variable	mass_part	 equal   20.0
+variable	damp_coeff	 equal	 1.0
+variable	partsize	 equal   0.88  #radius
+
+#Thermodynamic variables
+variable	t		     equal   1.0
+
+
+#Simulation parameters
+variable	eq_steps	 equal	 0
+variable	sstep	     equal	 1e9
+variable    xyz_steps	 equal   1e4
+variable	nevery		 equal	 10
+variable    thermostep   equal   1e4
+variable	vxstep		 equal	 1e4
+variable	dt		     equal	 0.001
+variable	eq_dt		 equal	 0.001
+variable    n_every		 equal   100
+variable    n_repeat     equal   1e2
+variable    n_Repeat     equal   1e2
+variable    n_freq		 equal   1e4
+
+variable    xyrate       equal   0.000896  #Pe/tD
+
+
+#Potential parameters
+variable	eps		     equal	 8
+variable	K_Kuhn		 equal 	 0.05
+variable	R0_Kuhn		 equal 	 60.00
+
+units		    lj
+boundary 	    p p p
+atom_style      bond
+pair_style	    hybrid lj/cut 1.12 lj/expand 2.5
+bond_style 	    fene
+special_bonds	fene
+
+#ATOM DEFINITION
+#read_data	    micelle.data
+read_restart	3.restart
+mass		    1 ${mass_bead}
+mass		    2 ${mass_part}
+
+#change_box all triclinic
+
+group 	        polymer type 1	
+group		    coll type 2
+
+
+# COEFFICIENTS
+
+pair_coeff   1 1 lj/cut 1.0 1.0 1.12 #HYD-HYD
+pair_modify  shift yes
+pair_coeff   1 2 lj/expand ${eps} 1.0 ${partsize} 2.5 #HYD-PAR
+pair_coeff	 2 2 lj/expand 2.0 2.0 6.5 2.24 #PART-PART   
+pair_modify	 shift yes
+
+bond_coeff 	1 ${K_Kuhn} ${R0_Kuhn} 0.0 1.0
+
+#pair_write 1 1 501 r 0.97 10 table_11.txt LJ
+#pair_write 1 2 501 r 0.98 10 table_12.txt LJ
+#pair_write 2 2 501 r 6.3  10 table_22.txt LJ
+
+neighbor		15.00 multi
+neigh_modify    every 1 delay 0 page 10000000000 one 500000000
+comm_modify		cutoff 40.0
+
+min_style cg
+minimize 1.0e-4 1.0e-6 100 1000
+
+
+#NEMD shear steadystate
+
+#reset_timestep	0
+
+timestep	${dt}
+compute     def all temp/deform
+fix		    1 all nve
+fix         2 all langevin $t $t ${damp_coeff} 485048 scale 2 7.17
+fix_modify	2 temp def
+fix         3 all deform 1 xy erate ${xyrate} remap v
+
+compute     layers all chunk/atom bin/1d y center 0.05 units reduced
+fix         4 all ave/chunk ${n_every} ${n_repeat} ${vxstep} layers vx file velprof_all.dat
+
+#compute	1 coll coord/atom cutoff 3.38
+#compute	2 all property/local patom1 patom2
+#compute	3 all pair/local dist eng
+
+#fix         5 coll ave/histo ${n_every} ${n_Repeat} ${n_freq} 0 80 40 c_1[*] mode vector file aggre.histo
+
+
+dump		1 all custom ${xyz_steps} dump.lammpstrj id type x y z ix iy iz
+dump_modify	1 sort id append yes
+dump		4 all custom ${xyz_steps} dump_periodic.lammpstrj id type x ix vx fx
+dump_modify	4 sort id append yes
+#dump		2 coll custom 100000 coord.dat id c_1[*]
+#dump_modify 2 sort id
+#dump        3 all local 1000000 dump.stat c_2[1] c_2[2] c_3[1] c_3[2]
+#dump_modify 3 sort 1 append yes
+
+#BOND INFORMATION
+
+compute 	   plocal all property/local batom1 batom2 btype
+compute 	   blocal all bond/local dist engpot 
+dump 		   5 all local 100000 bond_info.dump c_plocal[*] c_blocal[*]
+dump_modify    5 sort 1 append yes
+
+compute 		pair_polymer polymer pe/atom pair
+compute			pair_polymer_reduce polymer reduce sum c_pair_polymer
+variable 		pair_perpolymer equal c_pair_polymer_reduce/count(polymer)
+
+compute 		pair_coll coll pe/atom pair
+compute			pair_coll_reduce coll reduce sum c_pair_coll
+variable 		pair_percoll equal c_pair_coll_reduce/count(coll)
+
+compute         bond_polymer polymer pe/atom bond
+compute         bond_polymer_reduce polymer reduce sum c_bond_polymer
+variable        bond_perpolymer equal c_bond_polymer_reduce/count(polymer)
+
+thermo_style    custom step temp epair etotal density press pxy pxx pyy pzz v_pair_perpolymer v_pair_percoll v_bond_perpolymer
+thermo_modify	temp def
+print		    "Run Simulations"
+thermo          ${thermostep}
+restart         50000 3.restart 4.restart 
+run             ${sstep}
+
+#write_restart   restart.poly5
+#write_data		restart-1a.data5 nocoeff nofix

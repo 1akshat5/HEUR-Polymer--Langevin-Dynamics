@@ -1,0 +1,103 @@
+#BD of a 60 particle + 615 chain in total
+
+
+#VARIABLES
+variable	eq_steps	 equal	 0
+variable	run_steps	 equal	 1e7
+variable    xyz_steps	 equal   1e4
+variable	nevery		 equal	 10
+variable    thermo_steps equal   1e3
+variable	dt		     equal	 0.001
+variable	eq_dt		 equal	 0.001
+variable	mass_bead	 equal	 1.0
+variable	mass_part	 equal   100.0
+variable	damp_coeff	 equal	 1.0
+variable	eps		     equal	 8.0
+variable	Kuhn		 equal 	 60.00
+variable	K_Kuhn		 equal 	 1.50
+variable	R0_Kuhn		 equal 	 30.00
+variable    n_every		 equal   1e2
+variable    n_repeat     equal   1e4
+variable    n_freq		 equal   1e6
+
+variable	partsize	equal    0.88 #radius
+
+units		    lj
+boundary 	    p p p
+atom_style      bond
+pair_style	    hybrid lj/cut 1.12 lj/expand 2.5
+bond_style 	    fene
+special_bonds	fene
+
+#ATOM DEFINITION
+read_data	    micelle.data
+#read_restart	restart.poly
+mass		    1 ${mass_bead}
+mass		    2 ${mass_part}
+
+group 	        polymer type 1	
+group		    coll type 2
+
+
+# COEFFICIENTS
+
+pair_coeff   1 1 lj/cut 1.0 1.0 1.12 #HYD-HYD
+pair_modify  shift yes
+pair_coeff   1 2 lj/expand ${eps} 1.0 ${partsize} 2.5 #HYD-PAR
+pair_coeff	 2 2 lj/expand 2.0 2.0 6.5 2.24 #PART-PART   
+pair_modify	 shift yes
+
+bond_coeff 	1 ${K_Kuhn} ${R0_Kuhn} 0.0 1.0
+
+#pair_write 1 1 501 r 0.97 10 table_11.txt LJ
+#pair_write 1 2 501 r 0.98 10 table_12.txt LJ
+#pair_write 2 2 501 r 6.3  10 table_22.txt LJ
+
+neighbor	    10.00 multi
+neigh_modify	delay 1 every 1
+
+min_style cg
+minimize 1.0e-4 1.0e-6 100 1000
+
+
+fix		1 all nve
+fix		2 all langevin 1.0 1.0 ${damp_coeff} 485048
+fix		3 all deform 1 x final 0.0 50.0 y final 0.0 50.0 z final 0.0 50.0
+
+
+#compute firstrdf all rdf 100 1 1 
+#compute secondrdf all rdf 100 2 1
+#fix 	myfix1 all ave/time ${n_every}  ${n_repeat} ${n_freq} c_firstrdf[*] file rdf_11.txt mode vector
+#fix     myfix2 all ave/time ${n_every}  ${n_repeat} ${n_freq} c_secondrdf[*] file rdf_12.txt mode vector
+
+
+
+
+# PRE-RUN SIMULATIONS
+#reset_timestep	0
+#timestep	    ${eq_dt}
+thermo          ${thermo_steps}
+#run            ${eq_steps}
+
+# RUN SIMULATIONS
+#reset_timestep	0
+
+
+dump		1 all custom ${xyz_steps} dump.lammpstrj id type x y z
+dump_modify	1 sort id
+
+compute		press all pressure thermo_temp bond
+
+
+#fix		fly_corr_xy all ave/correlate/long ${nevery} ${run_steps} c_press[4] file corr_xy.txt title1 "time" title2 "corr" ncorr 30 nlen 16 ncount 2
+#fix		fly_corr_xz all ave/correlate/long ${nevery} ${run_steps} c_press[5] file corr_xz.txt title1 "time" title2 "corr" ncorr 30 nlen 16 ncount 2
+#fix		fly_corr_yz all ave/correlate/long ${nevery} ${run_steps} c_press[6] file corr_yz.txt title1 "time" title2 "corr" ncorr 30 nlen 16 ncount 2
+
+thermo_style    custom step pe ke etotal temp c_press[4] density emol epair
+
+timestep        ${dt}
+thermo		    ${thermo_steps}
+print		    "Run Simulations"
+run		        ${run_steps}
+write_restart	restart.poly2
+write_data		restart-1a.data2 nocoeff
